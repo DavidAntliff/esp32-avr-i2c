@@ -1,32 +1,16 @@
-# Pool Monitoring & Control - ESP32 Application
+# ESP32 communication with AVR slave via I2C
+
+Used to develop and test the [esp32-poolmon](https://github.com/DavidAntliff/esp32-poolmon) AVR operation.
 
 Requires ESP IDF v3.0rc1.
 
+## Dependencies
 
-## Notes
+Requires [esp32-smbus](https://github.com/DavidAntliff/esp32-smbus) and [avr-poolmon](https://github.com/DavidAntliff/avr-poolmon). These are included as submodules:
 
-### One Wire Bus
+`$ git update submodules --init`
 
-The DS18B20 needs extra current for EEPROM writes and Temperature measurements.
+## Registers
 
-https://www.maximintegrated.com/en/app-notes/index.mvp/id/4255
-
-Vpup is the pullup voltage.
-
-Vpupmin is the minimum pull up voltage and is usually 2.8V (not sure how this can be calculated from datasheet).
-
-For a given Vpup and Rpup, the difference between Vpup and Vpupmin determines the current available for special functions:
-
-    Iavail = (Vpup - Vpip_min) / Rpup
-
-For the DS18B20 at 3.3V:
-
-    Vpup = 3.3V
-    Rpup = 4.7kΩ
-    Vpupmin = 2.8V
-    => Iavail = 0.106mA
-    
-This is probably too low for a single device.
-
-TODO: calculate a better Rpup resistor value.
+See [registers.h](https://github.com/DavidAntliff/avr-poolmon/blob/master/registers.h).
 
