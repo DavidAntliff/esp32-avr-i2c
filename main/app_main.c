@@ -27,6 +27,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "driver/gpio.h"
+#include "soc/rtc.h"
 #include "esp_log.h"
 
 #include "led.h"
@@ -105,14 +106,6 @@ static void avr_test_sequence(void)
     state = (state + 1) % 7;
 }
 
-typedef struct
-{
-    mqtt_info_t * mqtt_info;
-    bool * running;
-    datastore_t * datastore;
-    publish_context_t * publish_context;
-} globals_t;
-
 void app_main()
 {
     esp_log_level_set("*", ESP_LOG_WARN);
@@ -141,7 +134,7 @@ void app_main()
 
     // I2C devices - AVR, Light Sensor, LCD
     _delay();
-    avr_support_init(i2c_master_info, avr_priority, datastore);
+    avr_support_init(i2c_master_info, avr_priority);
     avr_support_reset();
 
     bool running = true;

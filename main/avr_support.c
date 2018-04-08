@@ -32,19 +32,16 @@
 #include "esp_log.h"
 
 #include "avr_support.h"
-#include "constants.h"
-#include "utils.h"
 #include "i2c_master.h"
+#include "utils.h"
 #include "smbus.h"
-#include "publish.h"
-#include "resources.h"
-#include "../avr/avr-poolmon/registers.h"
-#include "datastore/datastore.h"
+#include "../avr-poolmon/registers.h"
 
 #define TAG "avr_support"
 
 #define SMBUS_TIMEOUT     1000   // milliseconds
 #define TICKS_PER_UPDATE  (1000 / portTICK_RATE_MS)
+#define EXPECTED_ID       0x44
 
 // use as bitwise OR combinations
 typedef enum
@@ -68,7 +65,6 @@ static QueueHandle_t command_queue;
 typedef struct
 {
     i2c_master_info_t * i2c_master_info;
-    const datastore_t * datastore;
 } task_inputs_t;
 
 #define I2C_ERROR_CHECK(x) do {                                             \
@@ -101,16 +97,16 @@ static uint8_t _decode_switch_states(uint8_t status)
     return new_states;
 }
 
-static void _publish_switch_states(uint8_t switch_states, const datastore_t * datastore)
+static void _publish_switch_states(uint8_t switch_states)
 {
     ESP_LOGD(TAG, "Publishing all switch states");
-    datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_CP_MODE_VALUE, 0, switch_states & 0b0001 ? 1.0 : 0.0);
-    datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_CP_MAN_VALUE,  0, switch_states & 0b0010 ? 1.0 : 0.0);
-    datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_PP_MODE_VALUE, 0, switch_states & 0b0100 ? 1.0 : 0.0);
-    datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_PP_MAN_VALUE,  0, switch_states & 0b1000 ? 1.0 : 0.0);
+    ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_CP_MODE_VALUE %d", switch_states & 0b0001 ? 1 : 0);
+    ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_CP_MAN_VALUE %d",  switch_states & 0b0010 ? 1 : 0);
+    ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_PP_MODE_VALUE %d", switch_states & 0b0100 ? 1 : 0);
+    ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_PP_MAN_VALUE %d",  switch_states & 0b1000 ? 1 : 0);
 }
 
-static void _publish_switch_changes(uint8_t last_switch_states, uint8_t new_switch_states, const datastore_t * datastore)
+static void _publish_switch_changes(uint8_t last_switch_states, uint8_t new_switch_states)
 {
     uint8_t changed = last_switch_states ^ new_switch_states;
     ESP_LOGD(TAG, "last_switch_states 0x%02x, new_switch_states 0x%02x, changed 0x%02x", last_switch_states, new_switch_states, changed);
@@ -119,41 +115,41 @@ static void _publish_switch_changes(uint8_t last_switch_states, uint8_t new_swit
     // Switches 2 and 4 report "0" when in Off position, and "1" in On position.
     if (changed & 0b0001)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_CP_MODE_VALUE, 0, new_switch_states & 0b0001 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_CP_MODE_VALUE %d", new_switch_states & 0b0001 ? 1 : 0);
     }
 
     if (changed & 0b0010)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_CP_MAN_VALUE,  0, new_switch_states & 0b0010 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_CP_MAN_VALUE %d",  new_switch_states & 0b0010 ? 1 : 0);
     }
 
     if (changed & 0b0100)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_PP_MODE_VALUE, 0, new_switch_states & 0b0100 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_PP_MODE_VALUE %d", new_switch_states & 0b0100 ? 1 : 0);
     }
 
     if (changed & 0b1000)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_SWITCHES_PP_MAN_VALUE,  0, new_switch_states & 0b1000 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_SWITCHES_PP_MAN_VALUE %d",  new_switch_states & 0b1000 ? 1 : 0);
     }
 }
 
 static uint8_t _decode_pump_states(uint8_t status)
 {
     uint8_t new_states = 0;
-    new_states |= status & REGISTER_STATUS_SSR1 ? 0b0001 : 0b0000;
+    new_states |= status & REGISTER_STATUS_CP ? 0b0001 : 0b0000;
     new_states |= status & REGISTER_STATUS_SSR2 ? 0b0010 : 0b0000;
     return new_states;
 }
 
-static void _publish_pump_states(uint8_t pump_states, const datastore_t * datastore)
+static void _publish_pump_states(uint8_t pump_states)
 {
     ESP_LOGD(TAG, "Publishing all pump states");
-    datastore_set_uint32(datastore, RESOURCE_ID_PUMPS_CP_STATE, 0, pump_states & 0b0001 ? 1.0 : 0.0);
-    datastore_set_uint32(datastore, RESOURCE_ID_PUMPS_PP_STATE, 0, pump_states & 0b0010 ? 1.0 : 0.0);
+    ESP_LOGI(TAG, "RESOURCE_ID_PUMPS_CP_STATE %d", pump_states & 0b0001 ? 1 : 0);
+    ESP_LOGI(TAG, "RESOURCE_ID_PUMPS_PP_STATE %d", pump_states & 0b0010 ? 1 : 0);
 }
 
-static void _publish_pump_changes(uint8_t last_pump_states, uint8_t new_pump_states, const datastore_t * datastore)
+static void _publish_pump_changes(uint8_t last_pump_states, uint8_t new_pump_states)
 {
     uint8_t changed = last_pump_states ^ new_pump_states;
     ESP_LOGD(TAG, "last_pump_states 0x%02x, new_pump_states 0x%02x, changed 0x%02x", last_pump_states, new_pump_states, changed);
@@ -161,12 +157,12 @@ static void _publish_pump_changes(uint8_t last_pump_states, uint8_t new_pump_sta
     // Pumps report "0" when in Off position, and "1" in On position.
     if (changed & 0b0001)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_PUMPS_CP_STATE, 0, new_pump_states & 0b0001 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_PUMPS_CP_STATE %d", new_pump_states & 0b0001 ? 1 : 0);
     }
 
     if (changed & 0b0010)
     {
-        datastore_set_uint32(datastore, RESOURCE_ID_PUMPS_PP_STATE,  0, new_pump_states & 0b0010 ? 1.0 : 0.0);
+        ESP_LOGI(TAG, "RESOURCE_ID_PUMPS_PP_STATE %d", new_pump_states & 0b0010 ? 1 : 0);
     }
 }
 
@@ -193,13 +189,22 @@ static void avr_support_task(void * pvParameter)
     smbus_init(smbus_info, i2c_port, CONFIG_AVR_I2C_ADDRESS);
     I2C_ERROR_CHECK(smbus_set_timeout(smbus_info, SMBUS_TIMEOUT / portTICK_RATE_MS));
 
+    // Verify the ID register
+    uint8_t id = _read_register(smbus_info, REGISTER_ID);
+    ESP_LOGD(TAG, "ID %d", id);
+    if (id != EXPECTED_ID)
+    {
+        ESP_LOGE(TAG, "Unexpected device at I2C address 0x%02x: ID 0x%02x, expected 0x%02x", CONFIG_AVR_I2C_ADDRESS, id, EXPECTED_ID);
+        goto stop;
+    }
+
     uint8_t status = _read_register(smbus_info, REGISTER_STATUS);
     ESP_LOGD(TAG, "I2C %d, REG 0x01: 0x%02x", i2c_port, status);
     uint8_t switch_states = _decode_switch_states(status);
-    _publish_switch_states(switch_states, task_inputs->datastore);
+    _publish_switch_states(switch_states);
 
     uint8_t pump_states = _decode_pump_states(status);
-    _publish_pump_states(pump_states, task_inputs->datastore);
+    _publish_pump_states(pump_states);
 
     i2c_master_unlock(i2c_master_info);
 
@@ -287,22 +292,45 @@ static void avr_support_task(void * pvParameter)
 
         // if any switches have changed state, publish them
         uint8_t new_switch_states = _decode_switch_states(status);
-        _publish_switch_changes(switch_states, new_switch_states, task_inputs->datastore);
+        _publish_switch_changes(switch_states, new_switch_states);
         switch_states = new_switch_states;
 
         // if any pumps have changed state, publish them
         uint8_t new_pump_states = _decode_pump_states(status);
-        _publish_pump_changes(pump_states, new_pump_states, task_inputs->datastore);
+        _publish_pump_changes(pump_states, new_pump_states);
         pump_states = new_pump_states;
+
+        i2c_master_lock(i2c_master_info, portMAX_DELAY);
+        uint8_t scratch = _read_register(smbus_info, REGISTER_SCRATCH);
+        ESP_LOGW(TAG, "scratch %d", scratch);
+        _write_register(smbus_info, REGISTER_SCRATCH, (uint8_t)scratch + 1);
+
+        uint8_t count_cp = _read_register(smbus_info, REGISTER_COUNT_CP);
+        ESP_LOGW(TAG, "count CP %d", count_cp);
+        uint8_t count_pp = _read_register(smbus_info, REGISTER_COUNT_PP);
+        ESP_LOGW(TAG, "count PP %d", count_pp);
+        uint8_t count_buzzer = _read_register(smbus_info, REGISTER_COUNT_BUZZER);
+        ESP_LOGW(TAG, "count Buzzer %d", count_buzzer);
+        uint8_t count_sw1 = _read_register(smbus_info, REGISTER_COUNT_CP_MODE);
+        ESP_LOGW(TAG, "count sw CP Mode %d", count_sw1);
+        uint8_t count_sw2 = _read_register(smbus_info, REGISTER_COUNT_CP_MAN);
+        ESP_LOGW(TAG, "count sw CP Man %d", count_sw2);
+        uint8_t count_sw3 = _read_register(smbus_info, REGISTER_COUNT_PP_MODE);
+        ESP_LOGW(TAG, "count sw PP Mode %d", count_sw3);
+        uint8_t count_sw4 = _read_register(smbus_info, REGISTER_COUNT_PP_MAN);
+        ESP_LOGW(TAG, "count sw PP Man %d", count_sw4);
+
+        i2c_master_unlock(i2c_master_info);
 
         vTaskDelayUntil(&last_wake_time, TICKS_PER_UPDATE);
     }
 
+  stop: ;
     free(task_inputs);
     vTaskDelete(NULL);
 }
 
-void avr_support_init(i2c_master_info_t * i2c_master_info, UBaseType_t priority, const datastore_t * datastore)
+void avr_support_init(i2c_master_info_t * i2c_master_info, UBaseType_t priority)
 {
     ESP_LOGD(TAG, "%s", __FUNCTION__);
 
@@ -314,7 +342,6 @@ void avr_support_init(i2c_master_info_t * i2c_master_info, UBaseType_t priority,
     {
         memset(task_inputs, 0, sizeof(*task_inputs));
         task_inputs->i2c_master_info = i2c_master_info;
-        task_inputs->datastore = datastore;
         xTaskCreate(&avr_support_task, "avr_support_task", 4096, task_inputs, priority, NULL);
     }
 

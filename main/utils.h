@@ -22,48 +22,25 @@
  * SOFTWARE.
  */
 
-#ifndef AVR_SUPPORT_H
-#define AVR_SUPPORT_H
+#ifndef UTILS_H
+#define UTILS_H
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
+#include <stdint.h>
 
-#include "i2c_master.h"
+/**
+ * @brief Obtain time since boot in microseconds.
+ */
+uint64_t microseconds_since_boot(void);
 
-// switch states
-typedef enum
-{
-    AVR_SWITCH_MODE_AUTO = 0,
-    AVR_SWITCH_MODE_MANUAL = 1,
-} avr_switch_mode_t;
+/**
+ * @brief Obtain time since boot in seconds.
+ */
+uint32_t seconds_since_boot(void);
 
-typedef enum
-{
-    AVR_SWITCH_MANUAL_OFF = 0,
-    AVR_SWITCH_MANUAL_ON = 1,
-} avr_switch_manual_t;
-
-typedef enum
-{
-    AVR_PUMP_STATE_OFF = 0,
-    AVR_PUMP_STATE_ON = 1,
-} avr_pump_state_t;
-
-typedef enum
-{
-    AVR_ALARM_STATE_OFF = 0,
-    AVR_ALARM_STATE_ON = 1,
-} avr_alarm_state_t;
-
-void avr_support_init(i2c_master_info_t * i2c_master_info, UBaseType_t priority);
-
-// reset the AVR
-void avr_support_reset(void);
-
-void avr_support_set_cp_pump(avr_pump_state_t state);
-void avr_support_set_pp_pump(avr_pump_state_t state);
-void avr_support_set_alarm(avr_alarm_state_t state);
+/**
+ * @brief Render any value as a string of binary digits.
+ */
+char * bits_to_string(char * buffer, size_t buffer_size, void const * const ptr, size_t const size);
 
 
-#endif // AVR_SUPPORT_H
+#endif // UTILS_H

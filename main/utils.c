@@ -22,48 +22,43 @@
  * SOFTWARE.
  */
 
-#ifndef AVR_SUPPORT_H
-#define AVR_SUPPORT_H
+#include <time.h>
+#include <sys/time.h>
+#include <stdlib.h>
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/queue.h"
+#include "esp_timer.h"
 
-#include "i2c_master.h"
+#include "utils.h"
 
-// switch states
-typedef enum
+uint64_t microseconds_since_boot(void)
 {
-    AVR_SWITCH_MODE_AUTO = 0,
-    AVR_SWITCH_MODE_MANUAL = 1,
-} avr_switch_mode_t;
+    return esp_timer_get_time();
+}
 
-typedef enum
+uint32_t seconds_since_boot(void)
 {
-    AVR_SWITCH_MANUAL_OFF = 0,
-    AVR_SWITCH_MANUAL_ON = 1,
-} avr_switch_manual_t;
+    return esp_timer_get_time() / 1000000;
+}
 
-typedef enum
+// Based on https://stackoverflow.com/a/3974138/143397
+// assumes little endian
+char * bits_to_string(char * buffer, size_t buffer_size, void const * const ptr, size_t const size)
 {
-    AVR_PUMP_STATE_OFF = 0,
-    AVR_PUMP_STATE_ON = 1,
-} avr_pump_state_t;
+    unsigned char *b = (unsigned char*) ptr;
+    unsigned char byte;
+    size_t idx = 0;
 
-typedef enum
-{
-    AVR_ALARM_STATE_OFF = 0,
-    AVR_ALARM_STATE_ON = 1,
-} avr_alarm_state_t;
-
-void avr_support_init(i2c_master_info_t * i2c_master_info, UBaseType_t priority);
-
-// reset the AVR
-void avr_support_reset(void);
-
-void avr_support_set_cp_pump(avr_pump_state_t state);
-void avr_support_set_pp_pump(avr_pump_state_t state);
-void avr_support_set_alarm(avr_alarm_state_t state);
-
-
-#endif // AVR_SUPPORT_H
+    for (size_t i = size; i-- > 0; )
+    {
+        for (int j = 7 ; j >= 0; j--)
+        {
+            byte = (b[i] >> j) & 1;
+            if (idx < buffer_size - 1)  // leave room for null terminator
+            {
+                buffer[idx++] = '0' + byte;
+            }
+        }
+    }
+    buffer[idx] = '\0';
+    return buffer;
+}
