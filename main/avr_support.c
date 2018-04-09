@@ -42,6 +42,7 @@
 #define SMBUS_TIMEOUT     1000   // milliseconds
 #define TICKS_PER_UPDATE  (1000 / portTICK_RATE_MS)
 #define EXPECTED_ID       0x44
+#define EXPECTED_VERSION  1
 
 // use as bitwise OR combinations
 typedef enum
@@ -90,10 +91,10 @@ static void _write_register(const smbus_info_t * smbus_info, uint8_t address, ui
 static uint8_t _decode_switch_states(uint8_t status)
 {
     uint8_t new_states = 0;
-    new_states |= status & REGISTER_STATUS_SW1 ? 0b0001 : 0b0000;
-    new_states |= status & REGISTER_STATUS_SW2 ? 0b0010 : 0b0000;
-    new_states |= status & REGISTER_STATUS_SW3 ? 0b0100 : 0b0000;
-    new_states |= status & REGISTER_STATUS_SW4 ? 0b1000 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_SW1 ? 0b0001 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_SW2 ? 0b0010 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_SW3 ? 0b0100 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_SW4 ? 0b1000 : 0b0000;
     return new_states;
 }
 
@@ -137,8 +138,8 @@ static void _publish_switch_changes(uint8_t last_switch_states, uint8_t new_swit
 static uint8_t _decode_pump_states(uint8_t status)
 {
     uint8_t new_states = 0;
-    new_states |= status & REGISTER_STATUS_CP ? 0b0001 : 0b0000;
-    new_states |= status & REGISTER_STATUS_SSR2 ? 0b0010 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_CP ? 0b0001 : 0b0000;
+    new_states |= status & AVR_REGISTER_STATUS_PP ? 0b0010 : 0b0000;
     return new_states;
 }
 
@@ -190,7 +191,7 @@ static void avr_support_task(void * pvParameter)
     I2C_ERROR_CHECK(smbus_set_timeout(smbus_info, SMBUS_TIMEOUT / portTICK_RATE_MS));
 
     // Verify the ID register
-    uint8_t id = _read_register(smbus_info, REGISTER_ID);
+    uint8_t id = _read_register(smbus_info, AVR_REGISTER_ID);
     ESP_LOGD(TAG, "ID %d", id);
     if (id != EXPECTED_ID)
     {
@@ -198,7 +199,21 @@ static void avr_support_task(void * pvParameter)
         goto stop;
     }
 
-    uint8_t status = _read_register(smbus_info, REGISTER_STATUS);
+    // Verify the Version register
+    uint8_t version = _read_register(smbus_info, AVR_REGISTER_VERSION);
+    ESP_LOGD(TAG, "Version %d", version);
+    if (version != EXPECTED_VERSION)
+    {
+        ESP_LOGE(TAG, "Unexpected firmware version %d, expected 0x%02x", version, EXPECTED_VERSION);
+        goto stop;
+    }
+    else
+    {
+        ESP_LOGI(TAG, "Firmware version %d", version);
+        // TODO: write to datastore
+    }
+
+    uint8_t status = _read_register(smbus_info, AVR_REGISTER_STATUS);
     ESP_LOGD(TAG, "I2C %d, REG 0x01: 0x%02x", i2c_port, status);
     uint8_t switch_states = _decode_switch_states(status);
     _publish_switch_states(switch_states);
@@ -228,20 +243,20 @@ static void avr_support_task(void * pvParameter)
                 if (_test_command(command, COMMAND_SELECT_CP))
                 {
                     ESP_LOGI(TAG, "CP on");
-                    control_reg |= REGISTER_CONTROL_SSR1;
+                    control_reg |= AVR_REGISTER_CONTROL_SSR1;
                 }
                 if (_test_command(command, COMMAND_SELECT_PP))
                 {
                     ESP_LOGI(TAG, "PP on");
-                    control_reg |= REGISTER_CONTROL_SSR2;
+                    control_reg |= AVR_REGISTER_CONTROL_SSR2;
                 }
                 if (_test_command(command, COMMAND_SELECT_ALARM))
                 {
                     ESP_LOGI(TAG, "Alarm on");
-                    control_reg |= REGISTER_CONTROL_BUZZER;
+                    control_reg |= AVR_REGISTER_CONTROL_BUZZER;
                 }
                 i2c_master_lock(i2c_master_info, portMAX_DELAY);
-                _write_register(smbus_info, REGISTER_CONTROL, control_reg);
+                _write_register(smbus_info, AVR_REGISTER_CONTROL, control_reg);
                 i2c_master_unlock(i2c_master_info);
             }
             else if (_test_command(command, COMMAND_OFF))
@@ -249,20 +264,20 @@ static void avr_support_task(void * pvParameter)
                 if (_test_command(command, COMMAND_SELECT_CP))
                 {
                     ESP_LOGI(TAG, "CP off");
-                    control_reg &= ~REGISTER_CONTROL_SSR1;
+                    control_reg &= ~AVR_REGISTER_CONTROL_SSR1;
                 }
                 if (_test_command(command, COMMAND_SELECT_PP))
                 {
                     ESP_LOGI(TAG, "PP off");
-                    control_reg &= ~REGISTER_CONTROL_SSR2;
+                    control_reg &= ~AVR_REGISTER_CONTROL_SSR2;
                 }
                 if (_test_command(command, COMMAND_SELECT_ALARM))
                 {
                     ESP_LOGI(TAG, "Alarm off");
-                    control_reg &= ~REGISTER_CONTROL_BUZZER;
+                    control_reg &= ~AVR_REGISTER_CONTROL_BUZZER;
                 }
                 i2c_master_lock(i2c_master_info, portMAX_DELAY);
-                _write_register(smbus_info, REGISTER_CONTROL, control_reg);
+                _write_register(smbus_info, AVR_REGISTER_CONTROL, control_reg);
                 i2c_master_unlock(i2c_master_info);            }
 
             if (_test_command(command, COMMAND_AVR_RESET))
@@ -282,10 +297,10 @@ static void avr_support_task(void * pvParameter)
         i2c_master_lock(i2c_master_info, portMAX_DELAY);
 
         // read control register
-        ESP_LOGD(TAG, "I2C %d, REG 0x00: 0x%02x", i2c_port, _read_register(smbus_info, REGISTER_CONTROL));
+        ESP_LOGD(TAG, "I2C %d, REG 0x00: 0x%02x", i2c_port, _read_register(smbus_info, AVR_REGISTER_CONTROL));
 
         // read status register
-        status = _read_register(smbus_info, REGISTER_STATUS);
+        status = _read_register(smbus_info, AVR_REGISTER_STATUS);
         ESP_LOGD(TAG, "I2C %d, REG 0x01: 0x%02x", i2c_port, status);
 
         i2c_master_unlock(i2c_master_info);
@@ -301,23 +316,23 @@ static void avr_support_task(void * pvParameter)
         pump_states = new_pump_states;
 
         i2c_master_lock(i2c_master_info, portMAX_DELAY);
-        uint8_t scratch = _read_register(smbus_info, REGISTER_SCRATCH);
+        uint8_t scratch = _read_register(smbus_info, AVR_REGISTER_SCRATCH);
         ESP_LOGW(TAG, "scratch %d", scratch);
-        _write_register(smbus_info, REGISTER_SCRATCH, (uint8_t)scratch + 1);
+        _write_register(smbus_info, AVR_REGISTER_SCRATCH, (uint8_t)scratch + 1);
 
-        uint8_t count_cp = _read_register(smbus_info, REGISTER_COUNT_CP);
+        uint8_t count_cp = _read_register(smbus_info, AVR_REGISTER_COUNT_CP);
         ESP_LOGW(TAG, "count CP %d", count_cp);
-        uint8_t count_pp = _read_register(smbus_info, REGISTER_COUNT_PP);
+        uint8_t count_pp = _read_register(smbus_info, AVR_REGISTER_COUNT_PP);
         ESP_LOGW(TAG, "count PP %d", count_pp);
-        uint8_t count_buzzer = _read_register(smbus_info, REGISTER_COUNT_BUZZER);
+        uint8_t count_buzzer = _read_register(smbus_info, AVR_REGISTER_COUNT_BUZZER);
         ESP_LOGW(TAG, "count Buzzer %d", count_buzzer);
-        uint8_t count_sw1 = _read_register(smbus_info, REGISTER_COUNT_CP_MODE);
+        uint8_t count_sw1 = _read_register(smbus_info, AVR_REGISTER_COUNT_CP_MODE);
         ESP_LOGW(TAG, "count sw CP Mode %d", count_sw1);
-        uint8_t count_sw2 = _read_register(smbus_info, REGISTER_COUNT_CP_MAN);
+        uint8_t count_sw2 = _read_register(smbus_info, AVR_REGISTER_COUNT_CP_MAN);
         ESP_LOGW(TAG, "count sw CP Man %d", count_sw2);
-        uint8_t count_sw3 = _read_register(smbus_info, REGISTER_COUNT_PP_MODE);
+        uint8_t count_sw3 = _read_register(smbus_info, AVR_REGISTER_COUNT_PP_MODE);
         ESP_LOGW(TAG, "count sw PP Mode %d", count_sw3);
-        uint8_t count_sw4 = _read_register(smbus_info, REGISTER_COUNT_PP_MAN);
+        uint8_t count_sw4 = _read_register(smbus_info, AVR_REGISTER_COUNT_PP_MAN);
         ESP_LOGW(TAG, "count sw PP Man %d", count_sw4);
 
         i2c_master_unlock(i2c_master_info);
