@@ -143,8 +143,6 @@ void app_main()
 
     while (running)
     {
-        last_wake_time = xTaskGetTickCount();
-
         avr_test_sequence();
 
         vTaskDelayUntil(&last_wake_time, 1000 / portTICK_RATE_MS);
